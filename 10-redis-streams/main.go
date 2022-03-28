@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 )
 
 func main() {
-
 	ctx := context.Background()
 	rdb := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
@@ -38,23 +38,33 @@ func main() {
 	}
 
 	for {
-
+		// time how long the redis grab takes
 		trades, err := rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    "mygroup",
 			Consumer: "consumer1",
 			Streams:  []string{"trades", "0"},
 			Count:    10,
-			// Block: 3 * time.Second,
-			NoAck: false,
+			Block:    0, // will block forever until events arrive
+			NoAck:    false,
 		}).Result()
 		if err != nil {
 			log.Println("error xreadgroup", err)
 		}
 
-		// log.Println(trades)
-		for _, v := range trades {
-			log.Println(v)
+		// time how long the insert to TS takes
+		for _, stream := range trades {
+			for _, message := range stream.Messages {
+				// log.Println(message)
+				S := message.Values["S"].(string)
+				t := message.Values["t"].(string)
+				p := message.Values["p"].(string)
+				s := message.Values["s"].(string)
+
+				log.Println(S, t, p, s)
+			}
 		}
+		time.Sleep(3 * time.Second)
+
 	}
 
 }

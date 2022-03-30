@@ -58,10 +58,9 @@ func redisConsumer(batchChan chan<- []map[string]interface{}, endpoint string, s
 	}
 }
 
-func timescaleWriter(batchChan <-chan []map[string]interface{}, endpoint string, conn string) {
+func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
 	pctx := context.Background()
-	connStr := conn
-	dbpool, _ := pgxpool.Connect(pctx, connStr)
+	dbpool, _ := pgxpool.Connect(pctx, conn)
 
 	sqlCreateTradesTable := `
         CREATE TABLE trades ( 
@@ -122,7 +121,7 @@ func main() {
 	go redisConsumer(batchChan, config.RedisEndpoint, config.StartID, config.TimescaleDBBatchSize)
 
 	for i := 0; i < config.TimescaleDBWorkers; i++ {
-		go timescaleWriter(batchChan, config.TimescaleDBEndpoint, config.TimescaleDBConnection)
+		go timescaleWriter(batchChan, config.TimescaleDBConnection)
 	}
 
 	go func() {

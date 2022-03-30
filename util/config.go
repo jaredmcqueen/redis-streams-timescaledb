@@ -4,7 +4,6 @@ import "github.com/spf13/viper"
 
 type Config struct {
 	RedisEndpoint         string `mapstructure:"REDIS_ENDPOINT"`
-	TimescaleDBEndpoint   string `mapstructure:"TIMESCALEDB_ENDPOINT"`
 	TimescaleDBBatchSize  int64  `mapstructure:"TIMESCALEDB_BATCH_SIZE"`
 	TimescaleDBConnection string `mapstructure:"TIMESCALEDB_CONNECTION"`
 	TimescaleDBWorkers    int    `mapstructure:"TIMESCALEDB_WORKERS"`

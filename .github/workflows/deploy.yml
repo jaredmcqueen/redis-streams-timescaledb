@@ -1,0 +1,33 @@
+name: Build Container
+
+on:
+  push:
+    branches: [ main ]
+    
+env:
+  REGISTRY: ghcr.io
+    
+jobs:
+
+  deploy:
+    name: Build image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v2
+      
+    - name: print-stuff
+      run: |
+        env
+        pwd
+        ls -lahrt
+        
+    - name: Build and push
+      run: |
+        echo ${{ github.token }} | docker login $REGISTRY -u ${{ github.repository_owner }} --password-stdin
+        docker build . -t $REGISTRY/${{ github.repository}}:latest
+        docker push $REGISTRY/${{ github.repository}}:latest

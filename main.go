@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -77,23 +79,30 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
     `
 	log.Println("making sure trades table exists")
 	_, err := dbpool.Exec(pctx, sqlCreateTradesTable)
+
 	if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code != "42P07" {
-		log.Fatal("something went wrong creating trades table", err)
+		// if pgErr, ok := err.(*pgconn.PgError); ok {
+		// log.Println(pgErr)
+		log.Fatal("something went wrong creating trades table ", err)
 	}
+
+	log.Println("done creating table")
 
 	insertTradeSQL := `
         INSERT INTO "trades" (time, symbol, price, tradeID, tradeSize, tradeCondition, exchangeCode, tape) values
         ($1, $2, $3, $4, $5, $6, $7, $8);
     `
+	var dateMilli int64
 	for {
 		select {
 		case batch := <-batchChan:
 			priBatch := &pgx.Batch{}
 			for _, v := range batch {
 				tsdbCounter++
+				dateMilli, _ = strconv.ParseInt(fmt.Sprintf("%s", v["t"]), 10, 64)
 				priBatch.Queue(
 					insertTradeSQL,
-					v["t"], // time
+					time.UnixMilli(dateMilli).Format(time.RFC3339),
 					v["S"], // symbol
 					v["p"], // price
 					v["i"], // tradeID
@@ -104,7 +113,10 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
 				)
 			}
 			//blindly insert, no need for error checking
-			dbpool.SendBatch(pctx, priBatch).Close()
+			err := dbpool.SendBatch(pctx, priBatch).Close()
+			if err != nil {
+				log.Fatal("error sending batch ", err)
+			}
 		}
 	}
 }

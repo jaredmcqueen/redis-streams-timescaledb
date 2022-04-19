@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -71,7 +72,7 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
             price DOUBLE PRECISION,
             tradeID bigint,
             tradeSize int NOT NULL,
-            tradeCondition VARCHAR,
+            tradeCondition VARCHAR ARRAY,
             exchangeCode VARCHAR,
             tape VARCHAR
         );
@@ -92,14 +93,31 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
         INSERT INTO "trades" (time, symbol, price, tradeID, tradeSize, tradeCondition, exchangeCode, tape) values
         ($1, $2, $3, $4, $5, $6, $7, $8);
     `
+
+	// initialize variables for later use
+	var conditions []string
 	var dateMilli int64
+
+	//block forever
 	for {
 		select {
 		case batch := <-batchChan:
 			priBatch := &pgx.Batch{}
 			for _, v := range batch {
+
 				tsdbCounter++
 				dateMilli, _ = strconv.ParseInt(fmt.Sprintf("%s", v["t"]), 10, 64)
+				cs, _ := v["c"].(string)
+				err := json.Unmarshal([]byte(cs), &conditions)
+				if err != nil {
+					log.Println("error unmarshalling ", err)
+					continue
+				}
+				for i, c := range conditions {
+					if c == " " {
+						conditions[i] = "-"
+					}
+				}
 				priBatch.Queue(
 					insertTradeSQL,
 					time.UnixMilli(dateMilli).Format(time.RFC3339),
@@ -107,7 +125,8 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
 					v["p"], // price
 					v["i"], // tradeID
 					v["s"], // tradeSize
-					v["c"], // tradeCondition
+					conditions,
+					// pgx.Array(result), // tradeCondition
 					v["x"], // exchangeCode
 					v["z"], // tape
 				)

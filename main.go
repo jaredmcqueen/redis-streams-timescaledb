@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"time"
 
@@ -94,8 +95,6 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
         ($1, $2, $3, $4, $5, $6, $7, $8);
     `
 
-	// initialize variables for later use
-
 	//block forever
 	for {
 		select {
@@ -109,7 +108,7 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
 				dateMilli, _ := strconv.ParseInt(fmt.Sprintf("%s", v["t"]), 10, 64)
 				err := json.Unmarshal([]byte(v["c"].(string)), &conditions)
 				if err != nil {
-					log.Println("error unmarshalling ", err)
+					// log.Println("error unmarshalling ", err)
 					continue
 				}
 				for i, c := range conditions {
@@ -117,20 +116,20 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
 						conditions[i] = "-"
 					}
 				}
+				// sort the conditions to reduce uiqueness
+				sort.Strings(conditions)
 				priBatch.Queue(
 					insertTradeSQL,
 					time.UnixMilli(dateMilli).Format(time.RFC3339),
-					v["S"], // symbol
-					v["p"], // price
-					v["i"], // tradeID
-					v["s"], // tradeSize
-					conditions,
-					// pgx.Array(result), // tradeCondition
-					v["x"], // exchangeCode
-					v["z"], // tape
+					v["S"],     // symbol
+					v["p"],     // price
+					v["i"],     // tradeID
+					v["s"],     // tradeSize
+					conditions, // conditions
+					v["x"],     // exchangeCode
+					v["z"],     // tape
 				)
 			}
-			//blindly insert, no need for error checking
 			err := dbpool.SendBatch(pctx, priBatch).Close()
 			if err != nil {
 				log.Fatal("error sending batch ", err)

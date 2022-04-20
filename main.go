@@ -95,8 +95,6 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
     `
 
 	// initialize variables for later use
-	var conditions []string
-	var dateMilli int64
 
 	//block forever
 	for {
@@ -105,10 +103,11 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
 			priBatch := &pgx.Batch{}
 			for _, v := range batch {
 
+				var conditions []string
+
 				tsdbCounter++
-				dateMilli, _ = strconv.ParseInt(fmt.Sprintf("%s", v["t"]), 10, 64)
-				cs, _ := v["c"].(string)
-				err := json.Unmarshal([]byte(cs), &conditions)
+				dateMilli, _ := strconv.ParseInt(fmt.Sprintf("%s", v["t"]), 10, 64)
+				err := json.Unmarshal([]byte(v["c"].(string)), &conditions)
 				if err != nil {
 					log.Println("error unmarshalling ", err)
 					continue

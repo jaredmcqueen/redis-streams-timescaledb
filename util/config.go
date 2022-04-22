@@ -4,10 +4,10 @@ import "github.com/spf13/viper"
 
 type Config struct {
 	RedisEndpoint         string `mapstructure:"REDIS_ENDPOINT"`
+	RedisStreamStart      string `mapstructure:"REDIS_STREAM_START"`
 	TimescaleDBBatchSize  int64  `mapstructure:"TIMESCALEDB_BATCH_SIZE"`
 	TimescaleDBConnection string `mapstructure:"TIMESCALEDB_CONNECTION"`
 	TimescaleDBWorkers    int    `mapstructure:"TIMESCALEDB_WORKERS"`
-	StartID               string `mapstructure:"REDIS_STREAM_START"`
 }
 
 // LoadConfig loads app.env if it exists and sets envars

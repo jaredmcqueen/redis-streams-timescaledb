@@ -25,11 +25,11 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
-func redisConsumer(batchChan chan<- []map[string]interface{}, endpoint string, startID string, batchSize int64) {
+func redisConsumer(batchChan chan<- []map[string]interface{}, config util.Config) {
 	rctx := context.Background()
-	log.Println("connecting to redis endpoint", endpoint)
+	log.Println("connecting to redis endpoint", config.RedisEndpoint)
 	rdb := redis.NewClient(&redis.Options{
-		Addr: endpoint,
+		Addr: config.RedisEndpoint,
 	})
 
 	// test redis connection
@@ -37,20 +37,25 @@ func redisConsumer(batchChan chan<- []map[string]interface{}, endpoint string, s
 	if err != nil {
 		log.Fatal("could not connect to redis", err)
 	}
-	log.Println("connected")
+	log.Println("connected to redis")
 
-	pit := startID
+	pit := config.RedisStreamStart
 	for {
-		trades, err := rdb.XRead(rctx, &redis.XReadArgs{
-			Streams: []string{"trades", pit},
-			Count:   batchSize,
-			Block:   0,
-		}).Result()
+		trades, err := rdb.XRead(rctx,
+			&redis.XReadArgs{
+				Streams: []string{"trades", pit},
+				Count:   config.TimescaleDBBatchSize,
+				Block:   0,
+			},
+		).Result()
 		if err != nil {
-			log.Fatal("error XRead: ", err)
+			log.Println("error XRead: ", err)
+			log.Println("attempting again in 10 seconds")
+			time.Sleep(time.Second * 10)
+			continue
 		}
 
-		bigBatch := make([]map[string]interface{}, 0, batchSize)
+		bigBatch := make([]map[string]interface{}, 0, config.TimescaleDBBatchSize)
 
 		for _, stream := range trades {
 			for _, message := range stream.Messages {
@@ -62,33 +67,9 @@ func redisConsumer(batchChan chan<- []map[string]interface{}, endpoint string, s
 	}
 }
 
-func timescaleWriter(batchChan <-chan []map[string]interface{}, conn string) {
+func timescaleWriter(batchChan <-chan []map[string]interface{}, config util.Config) {
 	pctx := context.Background()
-	dbpool, _ := pgxpool.Connect(pctx, conn)
-
-	sqlCreateTradesTable := `
-        CREATE TABLE trades ( 
-            time TIMESTAMPTZ NOT NULL,
-            symbol VARCHAR,
-            price DOUBLE PRECISION,
-            tradeID bigint,
-            tradeSize int NOT NULL,
-            tradeCondition VARCHAR ARRAY,
-            exchangeCode VARCHAR,
-            tape VARCHAR
-        );
-        SELECT create_hypertable('trades', 'time');
-    `
-	log.Println("making sure trades table exists")
-	_, err := dbpool.Exec(pctx, sqlCreateTradesTable)
-
-	if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code != "42P07" {
-		// if pgErr, ok := err.(*pgconn.PgError); ok {
-		// log.Println(pgErr)
-		log.Fatal("something went wrong creating trades table ", err)
-	}
-
-	log.Println("done creating table")
+	dbpool, _ := pgxpool.Connect(pctx, config.TimescaleDBConnection)
 
 	insertTradeSQL := `
         INSERT INTO "trades" (time, symbol, price, tradeID, tradeSize, tradeCondition, exchangeCode, tape) values
@@ -143,14 +124,42 @@ func main() {
 	if err != nil {
 		log.Fatal("could not load config", err)
 	}
+	log.Printf("%+v", config)
 	batchChan := make(chan []map[string]interface{}, 100)
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)
 
-	go redisConsumer(batchChan, config.RedisEndpoint, config.StartID, config.TimescaleDBBatchSize)
+	// Ensure that the tables exist
+	pctx := context.Background()
+	dbpool, _ := pgxpool.Connect(pctx, config.TimescaleDBConnection)
+
+	sqlCreateTradesTable := `
+        CREATE TABLE trades ( 
+            time TIMESTAMPTZ NOT NULL,
+            symbol VARCHAR,
+            price DOUBLE PRECISION,
+            tradeID bigint,
+            tradeSize int NOT NULL,
+            tradeCondition VARCHAR ARRAY,
+            exchangeCode VARCHAR,
+            tape VARCHAR
+        );
+        SELECT create_hypertable('trades', 'time');
+    `
+	log.Println("making sure trades table exists")
+	_, err = dbpool.Exec(pctx, sqlCreateTradesTable)
+
+	if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code != "42P07" {
+		// if pgErr, ok := err.(*pgconn.PgError); ok {
+		// log.Println(pgErr)
+		log.Fatal("something went wrong creating trades table ", err)
+	}
+
+	log.Println("done creating table")
+	go redisConsumer(batchChan, config)
 
 	for i := 0; i < config.TimescaleDBWorkers; i++ {
-		go timescaleWriter(batchChan, config.TimescaleDBConnection)
+		go timescaleWriter(batchChan, config)
 	}
 
 	go func() {

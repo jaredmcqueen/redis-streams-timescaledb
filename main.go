@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"os/signal"
-	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -72,8 +71,8 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, config util.Conf
 	dbpool, _ := pgxpool.Connect(pctx, config.TimescaleDBConnection)
 
 	insertTradeSQL := `
-        INSERT INTO "trades" (time, symbol, price, tradeID, tradeSize, tradeCondition, exchangeCode, tape) values
-        ($1, $2, $3, $4, $5, $6, $7, $8);
+        INSERT INTO "trades" (time, symbol, price, tradeSize, tradeCondition, exchangeCode, tape) values
+        ($1, $2, $3, $4, $5, $6, $7);
     `
 
 	//block forever
@@ -83,32 +82,18 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, config util.Conf
 			priBatch := &pgx.Batch{}
 			for _, v := range batch {
 
-				var conditions []string
-
 				tsdbCounter++
+
 				dateMilli, _ := strconv.ParseInt(fmt.Sprintf("%s", v["t"]), 10, 64)
-				err := json.Unmarshal([]byte(v["c"].(string)), &conditions)
-				if err != nil {
-					// log.Println("error unmarshalling ", err)
-					continue
-				}
-				for i, c := range conditions {
-					if c == " " {
-						conditions[i] = "-"
-					}
-				}
-				// sort the conditions to reduce uiqueness
-				sort.Strings(conditions)
 				priBatch.Queue(
 					insertTradeSQL,
 					time.UnixMilli(dateMilli).Format(time.RFC3339),
-					v["S"],     // symbol
-					v["p"],     // price
-					v["i"],     // tradeID
-					v["s"],     // tradeSize
-					conditions, // conditions
-					v["x"],     // exchangeCode
-					v["z"],     // tape
+					v["S"],                             // symbol
+					v["p"],                             // price
+					v["s"],                             // tradeSize
+					strings.Split(v["c"].(string), ""), // conditions
+					v["x"],                             // exchangeCode
+					v["z"],                             // tape
 				)
 			}
 			err := dbpool.SendBatch(pctx, priBatch).Close()
@@ -138,7 +123,6 @@ func main() {
             time TIMESTAMPTZ NOT NULL,
             symbol VARCHAR,
             price DOUBLE PRECISION,
-            tradeID bigint,
             tradeSize int NOT NULL,
             tradeCondition VARCHAR ARRAY,
             exchangeCode VARCHAR,

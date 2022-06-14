@@ -83,11 +83,11 @@ func timescaleWriter(batchChan <-chan []map[string]interface{}, config util.Conf
 			for _, v := range batch {
 
 				tsdbCounter++
-
 				dateMilli, _ := strconv.ParseInt(fmt.Sprintf("%s", v["t"]), 10, 64)
+				unixTime := time.UnixMilli(dateMilli).Format(time.RFC3339Nano)
 				priBatch.Queue(
 					insertTradeSQL,
-					time.UnixMilli(dateMilli).Format(time.RFC3339),
+					unixTime,
 					v["S"],                             // symbol
 					v["p"],                             // price
 					v["s"],                             // tradeSize
